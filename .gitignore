@@ -1,0 +1,6 @@
+.venv/
+build/
+dist/
+*.rar
+*.spec
+*.pdf

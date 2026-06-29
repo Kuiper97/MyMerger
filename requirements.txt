@@ -1,18 +1,11 @@
-#pip install 
-
 # To ensure app dependencies are ported from your virtual environment/host machine into your container, run 'pip freeze > requirements.txt' in the terminal to overwrite this file
-tkinter
-tkinter.messagebox 
-tkinter.filedialog
-os 
 
-#for merge file pdf 
+# For PDF merging
 PyPDF2
 pdf2image
+pyinstaller
 
 # Poppler is required for pdf2image to work
 # Windows: Install poppler using winget: winget install poppler
 # Linux: Install using package manager (e.g., sudo apt-get install poppler-utils)
 # macOS: Install using brew: brew install poppler
-
-pdf2image

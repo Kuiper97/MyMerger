@@ -150,8 +150,13 @@ def get_page_ranges(file_listbox, pdf_files, root):
         entry.pack(anchor='w', fill='x')
         entry_fields.append(entry)
 
+    # Tạo label và ô nhập liệu cho góc xoay
+    tk.Label(root, text="Góc xoay trái -90, xoay phải +90 (độ):").pack()
+    rotation_entry = tk.Entry(root)
+    rotation_entry.insert(0, "90") # Giá trị mặc định là 90 (xoay phải)
+    rotation_entry.pack()
     # Tạo nút Submit
-    button = tk.Button(content_frame, text="Submit", command=lambda: submit_page_ranges(entry_fields, pdf_files))
+    button = tk.Button(content_frame, text="Submit", command=lambda: submit_page_ranges(entry_fields, pdf_files, rotation_angle=int(rotation_entry.get())))
     button.pack(anchor='c')
 
     # Update the scroll region
@@ -183,37 +188,7 @@ def parse_page_ranges_input(ranges_text):
             parsed_ranges.append((page_number, page_number))
     return parsed_ranges
 
-
-def detect_page_rotation(page):
-    """Return the rotation angle needed to normalize landscape pages to portrait."""
-    try:
-        width = float(page.mediabox.width)
-        height = float(page.mediabox.height)
-    except Exception:
-        return 0
-
-    if width <= 0 or height <= 0:
-        return 0
-
-    current_rotation = int(getattr(page, "rotation", 0) or 0) % 360
-    if width > height and current_rotation in (0, 180):
-        return -90  
-
-    return 0
-
-
-def normalize_page_for_merge(page, auto_rotate=False):
-    """Return a page object optionally rotated to portrait orientation."""
-    if not auto_rotate:
-        return page
-
-    rotation = detect_page_rotation(page)
-    if rotation:
-        return page.rotate(rotation)
-    return page
-
-
-def merge_pdfs(pdf_files, page_ranges, output_path=None, auto_rotate=True):
+def merge_pdfs(pdf_files, page_ranges, output_path=None, rotation_angle=0):
     """Merge selected PDF files into a single PDF and return the saved path."""
     if not pdf_files:
         raise ValueError("No PDF files selected")
@@ -255,8 +230,9 @@ def merge_pdfs(pdf_files, page_ranges, output_path=None, auto_rotate=True):
 
         for page_index in range(start_page - 1, end_page):
             page = pdf_reader.pages[page_index]
-            page_to_add = normalize_page_for_merge(page, auto_rotate=auto_rotate)
-            pdf_writer.add_page(page_to_add)
+            if rotation_angle != 0:
+                page = page.rotate(rotation_angle)
+            pdf_writer.add_page(page)
 
     with open(output_path, "wb") as pdf_output:
         pdf_writer.write(pdf_output)
@@ -270,13 +246,13 @@ def merge_pdfs(pdf_files, page_ranges, output_path=None, auto_rotate=True):
     return output_path
 
 
-def process_pdfs(pdf_files, page_ranges, output_path=None, root=None):
+def process_pdfs(pdf_files, page_ranges, output_path=None, root=None, rotation_angle=0):
     """Process PDFs in a background thread and save the merged output."""
     try:
         if root is not None:
             root.after(0, lambda: messagebox.showinfo("Info", "Processing... Please wait."))
 
-        merged_path = merge_pdfs(pdf_files, page_ranges, output_path=output_path)
+        merged_path = merge_pdfs(pdf_files, page_ranges, output_path=output_path, rotation_angle=rotation_angle )
 
         if merged_path:
             if root is not None:
@@ -293,7 +269,7 @@ def process_pdfs(pdf_files, page_ranges, output_path=None, root=None):
             messagebox.showerror("Error", f"Unable to merge PDFs: {exc}")
 
 
-def submit_page_ranges(entry_fields, pdf_files):
+def submit_page_ranges(entry_fields, pdf_files, rotation_angle):
     """Submit page ranges and merge PDFs"""
     page_ranges = []
 
@@ -331,7 +307,7 @@ def submit_page_ranges(entry_fields, pdf_files):
 
     processing_thread = threading.Thread(
         target=process_pdfs,
-        args=(pdf_files, page_ranges, output_path, root),
+        args=(pdf_files, page_ranges, output_path, root, rotation_angle),
         daemon=True,
     )
     processing_thread.start()
@@ -1033,7 +1009,7 @@ def build_merge_tab(parent):
     diag_btn.pack(pady=2, anchor='c')
     optimize_btn = ttk.Button(content_frame2, text="Run Optimize", style="Success.TButton", command=lambda: run_optimize_ui())
     optimize_btn.pack(pady=2, anchor='c')
-
+        
     content_frame2.update_idletasks()
     canvas.configure(scrollregion=canvas.bbox("all"))
     canvas.update_idletasks()

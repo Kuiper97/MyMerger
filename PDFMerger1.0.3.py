@@ -33,6 +33,9 @@ except ImportError:
 # giảm dpi để giảm dung lượng file
 # Bổ sung tính năng slip file
 
+content_frame2 = None
+canvas = None
+
 
 def configure_app_style(root):
     """Apply a cleaner theme and button styling for the Tkinter UI."""
@@ -113,55 +116,92 @@ def estimate_compression_factor(original_size_bytes, target_size_bytes, referenc
 
 def get_page_ranges(file_listbox, pdf_files, root):
     """Get page ranges for each PDF file"""
-    rb_frame = tk.Frame(root)
-    rb_frame.pack(pady=10, anchor='w', fill='both', expand=True)
-
-    # Create a canvas to hold the content
-    canvas = tk.Canvas(rb_frame, width=400, height=300)
-    canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-    # Create a scrollbar and associate it with the canvas
-    scrollbar = tk.Scrollbar(rb_frame, orient=tk.VERTICAL, command=canvas.yview)
-    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-    canvas.configure(yscrollcommand=scrollbar.set)
-
-    # Create a frame to hold the content
-    content_frame = tk.Frame(canvas)
-    canvas.create_window((0, 0), window=content_frame, anchor='nw')
-
-    entry_fields = []
     new_pdf_files = [file_listbox.get(i) for i in range(file_listbox.size())]
     pdf_files = list(pdf_files)  # Convert tuple to list
     pdf_files.clear()
     pdf_files.extend(new_pdf_files)
 
-    for pdf_file in pdf_files:
-        label = tk.Label(content_frame, text=f"Start page muốn ghép của {pdf_file}:", fg="green")
-        label.pack(anchor='w', fill='x')
-        entry = tk.Entry(content_frame)
-        entry.insert(0, "1")  # Set default value to 1
-        entry.pack(anchor='w', fill='x')
-        entry_fields.append(entry)
+    if not pdf_files:
+        messagebox.showwarning("Warning", "No PDF files selected.")
+        return
 
-        label = tk.Label(content_frame, text=f"End page muốn ghép của {pdf_file}:", fg="blue")
-        label.pack(anchor='w', fill='x')
-        entry = tk.Entry(content_frame)
-        entry.insert(0, str(len(PyPDF2.PdfReader(pdf_file).pages)))  # Set default value to total number of pages
-        entry.pack(anchor='w', fill='x')
-        entry_fields.append(entry)
+    # Create a loading label in the root frame
+    loading_label = tk.Label(root, text="Đang tải thông tin trang của các file PDF...", fg="blue")
+    loading_label.pack(pady=10)
+    root.update_idletasks()
 
-    # Tạo label và ô nhập liệu cho góc xoay
-    tk.Label(root, text="Góc xoay trái -90, xoay phải +90 (độ):").pack()
-    rotation_entry = tk.Entry(root)
-    rotation_entry.insert(0, "90") # Giá trị mặc định là 90 (xoay phải)
-    rotation_entry.pack()
-    # Tạo nút Submit
-    button = tk.Button(content_frame, text="Submit", command=lambda: submit_page_ranges(entry_fields, pdf_files, rotation_angle=int(rotation_entry.get())))
-    button.pack(anchor='c')
+    def load_pages_and_build_ui():
+        try:
+            pdf_page_counts = []
+            for pdf_file in pdf_files:
+                try:
+                    reader = PyPDF2.PdfReader(pdf_file)
+                    pdf_page_counts.append((pdf_file, len(reader.pages)))
+                except Exception:
+                    pdf_page_counts.append((pdf_file, 1))
 
-    # Update the scroll region
-    content_frame.update_idletasks()
-    canvas.configure(scrollregion=canvas.bbox("all"))
+            def build_ui():
+                try:
+                    loading_label.destroy()
+                except Exception:
+                    pass
+
+                rb_frame = tk.Frame(root)
+                rb_frame.pack(pady=10, anchor='w', fill='both', expand=True)
+
+                # Create a canvas to hold the content
+                canvas = tk.Canvas(rb_frame, width=400, height=300)
+                canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+                # Create a scrollbar and associate it with the canvas
+                scrollbar = tk.Scrollbar(rb_frame, orient=tk.VERTICAL, command=canvas.yview)
+                scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+                canvas.configure(yscrollcommand=scrollbar.set)
+
+                # Create a frame to hold the content
+                content_frame = tk.Frame(canvas)
+                canvas.create_window((0, 0), window=content_frame, anchor='nw')
+
+                entry_fields = []
+                for pdf_file, total_pages in pdf_page_counts:
+                    label = tk.Label(content_frame, text=f"Start page muốn ghép của {pdf_file}:", fg="green")
+                    label.pack(anchor='w', fill='x')
+                    entry = tk.Entry(content_frame)
+                    entry.insert(0, "1")  # Set default value to 1
+                    entry.pack(anchor='w', fill='x')
+                    entry_fields.append(entry)
+
+                    label = tk.Label(content_frame, text=f"End page muốn ghép của {pdf_file}:", fg="blue")
+                    label.pack(anchor='w', fill='x')
+                    entry = tk.Entry(content_frame)
+                    entry.insert(0, str(total_pages))  # Set default value to total number of pages
+                    entry.pack(anchor='w', fill='x')
+                    entry_fields.append(entry)
+
+                # Tạo label và ô nhập liệu cho góc xoay
+                tk.Label(root, text="Góc xoay trái -90, xoay phải +90 (độ):").pack()
+                rotation_entry = tk.Entry(root)
+                rotation_entry.insert(0, "90") # Giá trị mặc định là 90 (xoay phải)
+                rotation_entry.pack()
+                # Tạo nút Submit
+                button = tk.Button(content_frame, text="Submit", command=lambda: submit_page_ranges(entry_fields, pdf_files, rotation_angle=int(rotation_entry.get())))
+                button.pack(anchor='c')
+
+                # Update the scroll region
+                content_frame.update_idletasks()
+                canvas.configure(scrollregion=canvas.bbox("all"))
+
+            root.after(0, build_ui)
+        except Exception as err:
+            def handle_err():
+                try:
+                    loading_label.destroy()
+                except Exception:
+                    pass
+                messagebox.showerror("Error", f"Không thể lấy thông tin trang: {err}")
+            root.after(0, handle_err)
+
+    threading.Thread(target=load_pages_and_build_ui, daemon=True).start()
 
 def parse_page_ranges_input(ranges_text):
     """Parse comma-separated page ranges like '1-3,5' into a list of (start, end)."""
@@ -287,20 +327,12 @@ def submit_page_ranges(entry_fields, pdf_files, rotation_angle):
         page_ranges.append((start_page, end_page))
 
     root = entry_fields[0].winfo_toplevel() if entry_fields else None
-    output_path = None
-    if root is not None:
-        output_path = filedialog.asksaveasfilename(
-            parent=root,
-            title="Save merged PDF as",
-            defaultextension=".pdf",
-            filetypes=[("PDF files", "*.pdf")],
-        )
-    else:
-        output_path = filedialog.asksaveasfilename(
-            title="Save merged PDF as",
-            defaultextension=".pdf",
-            filetypes=[("PDF files", "*.pdf")],
-        )
+    output_path = filedialog.asksaveasfilename(
+        parent=root,
+        title="Save merged PDF as",
+        defaultextension=".pdf",
+        filetypes=[("PDF files", "*.pdf")],
+    )
 
     if not output_path:
         return
@@ -354,6 +386,7 @@ def compress_pdf_images_with_fitz(input_pdf_path, output_pdf_path, target_dpi):
     if fitz is None:
         return False
 
+    doc = None
     try:
         doc = fitz.open(input_pdf_path)
         changed = False
@@ -387,25 +420,26 @@ def compress_pdf_images_with_fitz(input_pdf_path, output_pdf_path, target_dpi):
                         doc.replace_image(xref, out_buf.getvalue())
                     except Exception:
                         # give up on in-place image replacement for this file
-                        doc.close()
                         return False
                 changed = True
 
         if not changed:
-            doc.close()
             return False
 
         doc.save(output_pdf_path, deflate=True)
-        doc.close()
         return True
     except Exception as e:
         print(f"Không thể nén PDF bằng fitz: {e}")
         return False
+    finally:
+        if doc is not None:
+            doc.close()
 
 
 def build_pdf_from_jpeg_files(temp_files, output_pdf_path, dpi):
     """Build a PDF from JPEG files using fitz when available, else fallback to img2pdf."""
     if fitz is not None:
+        doc = None
         try:
             doc = fitz.open()
             for img_path in temp_files:
@@ -416,21 +450,32 @@ def build_pdf_from_jpeg_files(temp_files, output_pdf_path, dpi):
                 page.insert_image(fitz.Rect(0, 0, page_width, page_height), filename=img_path)
                 pix = None
             doc.save(output_pdf_path, deflate=True, garbage=3)
-            doc.close()
             return True
         except Exception:
             pass
+        finally:
+            if doc is not None:
+                doc.close()
 
     if img2pdf is not None:
         with open(output_pdf_path, "wb") as output_file:
             output_file.write(img2pdf.convert(*temp_files, dpi=dpi))
         return True
 
-    pil_images = [Image.open(path) for path in temp_files]
-    first_image = pil_images[0]
-    other_images = pil_images[1:]
-    first_image.save(output_pdf_path, "PDF", resolution=dpi, save_all=True, append_images=other_images, quality=20)
-    return True
+    pil_images = []
+    try:
+        pil_images = [Image.open(path) for path in temp_files]
+        if pil_images:
+            first_image = pil_images[0]
+            other_images = pil_images[1:]
+            first_image.save(output_pdf_path, "PDF", resolution=dpi, save_all=True, append_images=other_images, quality=20)
+        return True
+    finally:
+        for img in pil_images:
+            try:
+                img.close()
+            except Exception:
+                pass
 
 
 def rasterize_pdf_to_pdf(input_pdf_path, output_pdf_path, target_dpi, quality=None, preserve_color=True, progress_callback=None):
@@ -559,10 +604,12 @@ def compress_pdf_structure(pdf_path):
         return
 
     temp_path = f"temp_compress_{os.path.basename(pdf_path)}"
+    doc = None
     try:
         doc = fitz.open(pdf_path)
         doc.save(temp_path, garbage=4, deflate=True, deflate_images=True, deflate_fonts=True)
         doc.close()
+        doc = None
 
         if os.path.exists(temp_path) and os.path.getsize(temp_path) < os.path.getsize(pdf_path):
             os.replace(temp_path, pdf_path)
@@ -572,7 +619,13 @@ def compress_pdf_structure(pdf_path):
     except Exception as e:
         print(f"Lỗi khi nén cấu trúc: {e}")
         if os.path.exists(temp_path):
-            os.remove(temp_path)
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+    finally:
+        if doc is not None:
+            doc.close()
 
 
 def compress_pdf_with_pikepdf(input_pdf_path, output_pdf_path):
@@ -607,6 +660,7 @@ def inspect_pdf_stats(pdf_path):
     """Return basic statistics about a PDF using PyMuPDF (fitz)."""
     # Prefer fitz when available for richer stats
     if fitz is not None:
+        doc = None
         try:
             doc = fitz.open(pdf_path)
             pages = doc.page_count
@@ -635,7 +689,6 @@ def inspect_pdf_stats(pdf_path):
                     pass
 
             size = os.path.getsize(pdf_path) if os.path.exists(pdf_path) else 0
-            doc.close()
             return {
                 "pages": pages,
                 "images": img_count,
@@ -646,6 +699,9 @@ def inspect_pdf_stats(pdf_path):
             }
         except Exception as e:
             return {"error": str(e)}
+        finally:
+            if doc is not None:
+                doc.close()
 
     # Fallback: try pikepdf to at least get page count and size
     if pikepdf is not None:
@@ -700,30 +756,39 @@ def inspect_pdf_stats(pdf_path):
 
 
 def diagnose_pdf_file():
-    """Ask user for a PDF file and show inspection results."""
+    """Ask user for a PDF file and show inspection results in a background thread."""
     path = filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")])
     if not path:
         return
 
-    stats = inspect_pdf_stats(path)
-    if stats is None:
-        messagebox.showerror("Error", "PyMuPDF (fitz) is not available for diagnosis.")
-        return
+    active_root = tk._default_root or tk.Tk()
 
-    if "error" in stats:
-        messagebox.showerror("Error", f"Cannot inspect PDF:\n{stats['error']}")
-        return
+    def target():
+        stats = inspect_pdf_stats(path)
 
-    msg = (
-        f"File: {os.path.basename(path)}\n"
-        f"Pages: {stats['pages']}\n"
-        f"Images: {stats['images']}\n"
-        f"Fonts: {stats['fonts']}\n"
-        f"Text bytes: {stats['text_bytes']}\n"
-        f"Size: {stats['size']} bytes\n"
-        f"Sample fonts: {', '.join(stats.get('sample_fonts', []))}"
-    )
-    messagebox.showinfo("PDF Diagnosis", msg)
+        def display_result():
+            if stats is None:
+                messagebox.showerror("Error", "PyMuPDF (fitz) is not available for diagnosis.")
+                return
+
+            if "error" in stats:
+                messagebox.showerror("Error", f"Cannot inspect PDF:\n{stats['error']}")
+                return
+
+            msg = (
+                f"File: {os.path.basename(path)}\n"
+                f"Pages: {stats['pages']}\n"
+                f"Images: {stats['images']}\n"
+                f"Fonts: {stats['fonts']}\n"
+                f"Text bytes: {stats['text_bytes']}\n"
+                f"Size: {stats['size']} bytes\n"
+                f"Sample fonts: {', '.join(stats.get('sample_fonts', []))}"
+            )
+            messagebox.showinfo("PDF Diagnosis", msg)
+
+        active_root.after(0, display_result)
+
+    threading.Thread(target=target, daemon=True).start()
 
 
 def _report_progress(progress_callback, percent, message=None):
@@ -970,15 +1035,31 @@ def build_split_tab(parent):
             return
         if not output_pdf:
             output_pdf = f"{os.path.splitext(input_pdf)[0]}_split.pdf"
-        try:
-            page_ranges = parse_page_ranges_input(ranges_var.get())
-            split_pdf_pages(input_pdf, output_pdf, page_ranges)
-            status_var.set(f"Đã tách xong: {output_pdf}")
-            messagebox.showinfo("Info", f"Đã tạo file mới: {output_pdf}")
-            os.startfile(output_pdf)
-        except Exception as exc:
-            status_var.set(f"Lỗi: {exc}")
-            messagebox.showerror("Error", f"Không thể tách file: {exc}")
+        
+        status_var.set("Đang tách file PDF...")
+
+        def target():
+            try:
+                page_ranges = parse_page_ranges_input(ranges_var.get())
+                split_pdf_pages(input_pdf, output_pdf, page_ranges)
+                
+                def on_success():
+                    status_var.set(f"Đã tách xong: {output_pdf}")
+                    messagebox.showinfo("Info", f"Đã tạo file mới: {output_pdf}")
+                    try:
+                        os.startfile(output_pdf)
+                    except Exception:
+                        pass
+                
+                split_frame.after(0, on_success)
+            except Exception as exc:
+                def on_failure():
+                    status_var.set(f"Lỗi: {exc}")
+                    messagebox.showerror("Error", f"Không thể tách file: {exc}")
+                
+                split_frame.after(0, on_failure)
+
+        threading.Thread(target=target, daemon=True).start()
 
     ttk.Button(split_frame, text="Tách PDF", style="Success.TButton", command=run_split_pdf).pack(anchor='w', pady=(12, 0))
     tk.Label(split_frame, textvariable=status_var, fg="#b91c1c", wraplength=700, justify='left', bg="#f8fafc").pack(anchor='w', pady=(10, 0))

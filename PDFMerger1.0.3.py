@@ -38,21 +38,56 @@ canvas = None
 
 
 def configure_app_style(root):
-    """Apply a cleaner theme and button styling for the Tkinter UI."""
+    """Apply a modern, flat Slate/Indigo theme using ttk styling."""
     style = ttk.Style(root)
     try:
         style.theme_use("clam")
     except tk.TclError:
         pass
 
-    style.configure("Card.TFrame", background="#f8fafc")
-    style.configure("Accent.TButton", background="#2563eb", foreground="white", padding=(10, 8))
-    style.map("Accent.TButton", background=[("active", "#1d4ed8")], foreground=[("disabled", "#e5e7eb")])
-    style.configure("Success.TButton", background="#16a34a", foreground="white", padding=(10, 8))
-    style.map("Success.TButton", background=[("active", "#15803d")])
-    style.configure("Danger.TButton", background="#dc2626", foreground="white", padding=(10, 8))
-    style.map("Danger.TButton", background=[("active", "#b91c1c")])
-    style.configure("TLabel", background="#f8fafc")
+    # Root background configuration
+    root.configure(bg="#f8fafc")
+
+    # Font definitions
+    default_font = ("Segoe UI", 10)
+    bold_font = ("Segoe UI", 10, "bold")
+    header_font = ("Segoe UI", 15, "bold")
+
+    # Frame styles
+    style.configure("TFrame", background="#f8fafc")
+    style.configure("Card.TFrame", background="#ffffff", relief="flat", borderwidth=0)
+    style.configure("White.TFrame", background="#ffffff")
+    
+    # Label styles
+    style.configure("TLabel", background="#f8fafc", foreground="#0f172a", font=default_font)
+    style.configure("Card.TLabel", background="#ffffff", foreground="#0f172a", font=default_font)
+    style.configure("Header.TLabel", background="#f8fafc", foreground="#0f172a", font=header_font)
+    style.configure("Sub.TLabel", background="#f8fafc", foreground="#475569", font=("Segoe UI", 9))
+    
+    # Button styles
+    style.configure("TButton", font=bold_font, padding=(12, 6))
+    
+    style.configure("Accent.TButton", background="#4f46e5", foreground="white", borderwidth=0)
+    style.map("Accent.TButton", background=[("active", "#4338ca"), ("disabled", "#e2e8f0")], foreground=[("disabled", "#94a3b8")])
+    
+    style.configure("Success.TButton", background="#059669", foreground="white", borderwidth=0)
+    style.map("Success.TButton", background=[("active", "#047857"), ("disabled", "#e2e8f0")], foreground=[("disabled", "#94a3b8")])
+    
+    style.configure("Danger.TButton", background="#dc2626", foreground="white", borderwidth=0)
+    style.map("Danger.TButton", background=[("active", "#b91c1c"), ("disabled", "#e2e8f0")], foreground=[("disabled", "#94a3b8")])
+
+    style.configure("Secondary.TButton", background="#e2e8f0", foreground="#0f172a", borderwidth=0)
+    style.map("Secondary.TButton", background=[("active", "#cbd5e1"), ("disabled", "#e2e8f0")], foreground=[("disabled", "#94a3b8")])
+
+    # Notebook (Tabs) styling
+    style.configure("TNotebook", background="#f8fafc", borderwidth=0)
+    style.configure("TNotebook.Tab", background="#e2e8f0", foreground="#475569", padding=(16, 6), font=bold_font, borderwidth=0)
+    style.map("TNotebook.Tab", 
+              background=[("selected", "#ffffff"), ("active", "#cbd5e1")],
+              foreground=[("selected", "#4f46e5")])
+
+    # Entry fields styling
+    style.configure("TEntry", fieldbackground="#ffffff", bordercolor="#cbd5e1", lightcolor="#cbd5e1", darkcolor="#cbd5e1", padding=6)
 
 
 def parse_size_to_bytes(size_text):
@@ -126,7 +161,7 @@ def get_page_ranges(file_listbox, pdf_files, root):
         return
 
     # Create a loading label in the root frame
-    loading_label = tk.Label(root, text="Đang tải thông tin trang của các file PDF...", fg="blue")
+    loading_label = ttk.Label(root, text="Đang tải thông tin trang của các file PDF...", style="Sub.TLabel")
     loading_label.pack(pady=10)
     root.update_idletasks()
 
@@ -146,46 +181,63 @@ def get_page_ranges(file_listbox, pdf_files, root):
                 except Exception:
                     pass
 
-                rb_frame = tk.Frame(root)
+                rb_frame = ttk.Frame(root)
                 rb_frame.pack(pady=10, anchor='w', fill='both', expand=True)
 
                 # Create a canvas to hold the content
-                canvas = tk.Canvas(rb_frame, width=400, height=300)
+                canvas = tk.Canvas(rb_frame, width=400, height=300, bg="#f8fafc", highlightthickness=0)
                 canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
                 # Create a scrollbar and associate it with the canvas
-                scrollbar = tk.Scrollbar(rb_frame, orient=tk.VERTICAL, command=canvas.yview)
+                scrollbar = ttk.Scrollbar(rb_frame, orient=tk.VERTICAL, command=canvas.yview)
                 scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
                 canvas.configure(yscrollcommand=scrollbar.set)
 
                 # Create a frame to hold the content
-                content_frame = tk.Frame(canvas)
+                content_frame = ttk.Frame(canvas, style="Card.TFrame", padding=16)
                 canvas.create_window((0, 0), window=content_frame, anchor='nw')
 
                 entry_fields = []
                 for pdf_file, total_pages in pdf_page_counts:
-                    label = tk.Label(content_frame, text=f"Start page muốn ghép của {pdf_file}:", fg="green")
-                    label.pack(anchor='w', fill='x')
-                    entry = tk.Entry(content_frame)
-                    entry.insert(0, "1")  # Set default value to 1
-                    entry.pack(anchor='w', fill='x')
-                    entry_fields.append(entry)
+                    # Clean filename for label
+                    filename = os.path.basename(pdf_file)
+                    file_card = ttk.Frame(content_frame, style="Card.TFrame")
+                    file_card.pack(fill='x', pady=6, anchor='w')
 
-                    label = tk.Label(content_frame, text=f"End page muốn ghép của {pdf_file}:", fg="blue")
-                    label.pack(anchor='w', fill='x')
-                    entry = tk.Entry(content_frame)
-                    entry.insert(0, str(total_pages))  # Set default value to total number of pages
-                    entry.pack(anchor='w', fill='x')
-                    entry_fields.append(entry)
+                    ttk.Label(file_card, text=filename, font=("Segoe UI", 10, "bold"), foreground="#4f46e5", style="Card.TLabel").pack(anchor='w', pady=(0, 4))
+                    
+                    row1 = ttk.Frame(file_card, style="White.TFrame")
+                    row1.pack(fill='x', pady=2)
+                    ttk.Label(row1, text="Start page:", style="Card.TLabel", width=12).pack(side=tk.LEFT)
+                    entry_start = ttk.Entry(row1, font=("Segoe UI", 9))
+                    entry_start.insert(0, "1")
+                    entry_start.pack(side=tk.LEFT, fill='x', expand=True, ipady=2)
+                    entry_fields.append(entry_start)
 
-                # Tạo label và ô nhập liệu cho góc xoay
-                tk.Label(root, text="Góc xoay trái -90, xoay phải +90 (độ):").pack()
-                rotation_entry = tk.Entry(root)
-                rotation_entry.insert(0, "90") # Giá trị mặc định là 90 (xoay phải)
-                rotation_entry.pack()
-                # Tạo nút Submit
-                button = tk.Button(content_frame, text="Submit", command=lambda: submit_page_ranges(entry_fields, pdf_files, rotation_angle=int(rotation_entry.get())))
-                button.pack(anchor='c')
+                    row2 = ttk.Frame(file_card, style="White.TFrame")
+                    row2.pack(fill='x', pady=2)
+                    ttk.Label(row2, text="End page:", style="Card.TLabel", width=12).pack(side=tk.LEFT)
+                    entry_end = ttk.Entry(row2, font=("Segoe UI", 9))
+                    entry_end.insert(0, str(total_pages))
+                    entry_end.pack(side=tk.LEFT, fill='x', expand=True, ipady=2)
+                    entry_fields.append(entry_end)
+
+                # Rotation card
+                rot_card = ttk.Frame(content_frame, style="Card.TFrame")
+                rot_card.pack(fill='x', pady=12, anchor='w')
+                ttk.Label(rot_card, text="Góc xoay trái -90, xoay phải +90 (độ):", style="Card.TLabel").pack(anchor='w', pady=(0, 4))
+                rotation_entry = ttk.Entry(rot_card, font=("Segoe UI", 9))
+                rotation_entry.insert(0, "90")
+                rotation_entry.pack(fill='x', ipady=2)
+
+                # Submit button
+                submit_btn = ttk.Button(
+                    content_frame, 
+                    text="Submit Merge", 
+                    style="Success.TButton", 
+                    command=lambda: submit_page_ranges(entry_fields, pdf_files, rotation_angle=int(rotation_entry.get()))
+                )
+                submit_btn.pack(pady=12, anchor='c')
 
                 # Update the scroll region
                 content_frame.update_idletasks()
@@ -904,18 +956,22 @@ def run_optimize_ui():
     progress_window.title("Optimizing PDF")
     progress_window.resizable(False, False)
     progress_window.grab_set()
-    progress_window.configure(bg="#f4f8fb")
+    progress_window.configure(bg="#f8fafc")
 
-    main_frame = tk.Frame(progress_window, bg="#f4f8fb", padx=24, pady=24)
+    main_frame = ttk.Frame(progress_window, padding=24)
     main_frame.pack(fill="both", expand=True)
 
-    tk.Label(main_frame, text="Optimizing PDF", font=("Segoe UI", 16, "bold"), bg="#f4f8fb", fg="#1f4e79").pack(anchor="w", pady=(0, 6))
-    tk.Label(main_frame, text=f"Target size: {target_size_text} • Estimated DPI: {dpi} (approximate)", font=("Segoe UI", 10), bg="#f4f8fb", fg="#4b5563").pack(anchor="w", pady=(0, 12))
+    title_label = ttk.Label(main_frame, text="Optimizing PDF", font=("Segoe UI", 15, "bold"), foreground="#1d4ed8")
+    title_label.pack(anchor="w", pady=(0, 6))
+    
+    sub_label = ttk.Label(main_frame, text=f"Target size: {target_size_text} • Estimated DPI: {dpi} (approximate)", style="Sub.TLabel")
+    sub_label.pack(anchor="w", pady=(0, 12))
 
     progress_var = tk.IntVar(value=0)
     progress_bar = ttk.Progressbar(main_frame, maximum=100, variable=progress_var, length=420, mode="determinate")
     progress_bar.pack(fill="x", pady=(0, 8))
-    status_label = tk.Label(main_frame, text="Starting...", bg="#f4f8fb", fg="#1f4e79", font=("Segoe UI", 10))
+    
+    status_label = ttk.Label(main_frame, text="Starting...", style="Sub.TLabel")
     status_label.pack(anchor="w")
 
     def update_progress(percent, message=None):
@@ -997,35 +1053,77 @@ def split_pdf_pages(input_pdf_path, output_pdf_path, page_ranges):
 
 def build_split_tab(parent):
     """Create the split-PDF tab UI."""
-    split_frame = tk.Frame(parent, padx=24, pady=24, bg="#f8fafc")
+    split_frame = ttk.Frame(parent, padding=24)
     split_frame.pack(fill='both', expand=True)
 
-    hero_frame = tk.Frame(split_frame, bg="#eefbf2", bd=1, relief="solid")
-    hero_frame.pack(fill='x', pady=(0, 16))
-    tk.Label(hero_frame, text="Tách file PDF", font=("Segoe UI", 16, "bold"), fg="#166534", bg="#eefbf2").pack(anchor='w', padx=16, pady=(12, 2))
-    tk.Label(hero_frame, text="Chọn file PDF, nhập phạm vi trang cần giữ và lưu file mới.", fg="#4b5563", bg="#eefbf2").pack(anchor='w', padx=16, pady=(0, 12))
+    # Hero section (clean, modern green alert-like banner)
+    hero_frame = tk.Frame(split_frame, bg="#eefbf2", bd=0, highlightthickness=0)
+    hero_frame.pack(fill='x', pady=(0, 20))
+    title_lbl = tk.Label(hero_frame, text="Tách file PDF", font=("Segoe UI", 16, "bold"), fg="#166534", bg="#eefbf2")
+    title_lbl.pack(anchor='w', padx=16, pady=(12, 2))
+    desc_lbl = tk.Label(hero_frame, text="Chọn file PDF, nhập phạm vi trang cần giữ và xuất file mới.", font=("Segoe UI", 10), fg="#475569", bg="#eefbf2")
+    desc_lbl.pack(anchor='w', padx=16, pady=(0, 12))
+
+    # Main Card container
+    card_frame = ttk.Frame(split_frame, style="Card.TFrame", padding=16)
+    card_frame.pack(fill='both', expand=True)
 
     input_var = tk.StringVar()
     output_var = tk.StringVar()
     ranges_var = tk.StringVar(value="1-3,5")
     status_var = tk.StringVar(value="")
 
-    input_frame = tk.Frame(split_frame, bg="#f8fafc")
-    input_frame.pack(fill='x', pady=6)
-    tk.Label(input_frame, text="Đường dẫn file PDF:", bg="#f8fafc").pack(anchor='w')
-    tk.Entry(input_frame, textvariable=input_var, width=110).pack(side=tk.LEFT, fill='x', expand=True)
-    ttk.Button(input_frame, text="Chọn file", command=lambda: input_var.set(filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")]))).pack(side=tk.LEFT, padx=(10, 0))
+    # PDF file input row
+    input_row = ttk.Frame(card_frame, style="White.TFrame")
+    input_row.pack(fill='x', pady=8)
+    ttk.Label(input_row, text="Đường dẫn file PDF:", style="Card.TLabel").pack(anchor='w', pady=(0, 4))
+    
+    input_entry_frame = ttk.Frame(input_row, style="White.TFrame")
+    input_entry_frame.pack(fill='x', expand=True)
+    
+    input_entry = ttk.Entry(input_entry_frame, textvariable=input_var, font=("Segoe UI", 10))
+    input_entry.pack(side=tk.LEFT, fill='x', expand=True, ipady=3)
+    
+    select_file_btn = ttk.Button(
+        input_entry_frame, 
+        text="Chọn file", 
+        style="Secondary.TButton", 
+        width=15,
+        command=lambda: input_var.set(filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")]))
+    )
+    select_file_btn.pack(side=tk.LEFT, padx=(10, 0))
 
-    output_frame = tk.Frame(split_frame, bg="#f8fafc")
-    output_frame.pack(fill='x', pady=6)
-    tk.Label(output_frame, text="Đường dẫn file xuất:", bg="#f8fafc").pack(anchor='w')
-    tk.Entry(output_frame, textvariable=output_var, width=110).pack(side=tk.LEFT, fill='x', expand=True)
-    ttk.Button(output_frame, text="Chọn nơi lưu", command=lambda: output_var.set(filedialog.asksaveasfilename(defaultextension='.pdf', filetypes=[("PDF files", "*.pdf")]))).pack(side=tk.LEFT, padx=(10, 0))
+    # Output file input row
+    output_row = ttk.Frame(card_frame, style="White.TFrame")
+    output_row.pack(fill='x', pady=8)
+    ttk.Label(output_row, text="Đường dẫn file xuất:", style="Card.TLabel").pack(anchor='w', pady=(0, 4))
+    
+    output_entry_frame = ttk.Frame(output_row, style="White.TFrame")
+    output_entry_frame.pack(fill='x', expand=True)
+    
+    output_entry = ttk.Entry(output_entry_frame, textvariable=output_var, font=("Segoe UI", 10))
+    output_entry.pack(side=tk.LEFT, fill='x', expand=True, ipady=3)
+    
+    select_dest_btn = ttk.Button(
+        output_entry_frame, 
+        text="Chọn nơi lưu", 
+        style="Secondary.TButton", 
+        width=15,
+        command=lambda: output_var.set(filedialog.asksaveasfilename(defaultextension='.pdf', filetypes=[("PDF files", "*.pdf")]))
+    )
+    select_dest_btn.pack(side=tk.LEFT, padx=(10, 0))
 
-    ranges_frame = tk.Frame(split_frame, bg="#f8fafc")
-    ranges_frame.pack(fill='x', pady=6)
-    tk.Label(ranges_frame, text="Phạm vi trang (ví dụ: 1-3,5):", bg="#f8fafc").pack(anchor='w')
-    tk.Entry(ranges_frame, textvariable=ranges_var, width=110).pack(fill='x', expand=True)
+    # Page ranges input row
+    ranges_row = ttk.Frame(card_frame, style="White.TFrame")
+    ranges_row.pack(fill='x', pady=8)
+    ttk.Label(ranges_row, text="Phạm vi trang (ví dụ: 1-3,5):", style="Card.TLabel").pack(anchor='w', pady=(0, 4))
+    
+    ranges_entry = ttk.Entry(ranges_row, textvariable=ranges_var, font=("Segoe UI", 10))
+    ranges_entry.pack(fill='x', expand=True, ipady=3)
+
+    # Actions container
+    actions_row = ttk.Frame(card_frame, style="White.TFrame")
+    actions_row.pack(fill='x', pady=(16, 0))
 
     def run_split_pdf():
         input_pdf = input_var.get().strip()
@@ -1061,56 +1159,95 @@ def build_split_tab(parent):
 
         threading.Thread(target=target, daemon=True).start()
 
-    ttk.Button(split_frame, text="Tách PDF", style="Success.TButton", command=run_split_pdf).pack(anchor='w', pady=(12, 0))
-    tk.Label(split_frame, textvariable=status_var, fg="#b91c1c", wraplength=700, justify='left', bg="#f8fafc").pack(anchor='w', pady=(10, 0))
+    split_btn = ttk.Button(actions_row, text="Tách PDF", style="Success.TButton", width=15, command=run_split_pdf)
+    split_btn.pack(side=tk.LEFT)
+    
+    status_label = ttk.Label(actions_row, textvariable=status_var, style="Sub.TLabel")
+    status_label.pack(side=tk.LEFT, padx=16)
 
 
 def build_merge_tab(parent):
     """Create the merge-PDF tab UI."""
-    global content_frame2, canvas
+    global content_frame2, canvas, main_paned, right_pane_container
 
-    canvas = tk.Canvas(parent, bg="#f8fafc", highlightthickness=0)
+    # Create a horizontal Panedwindow inside the merge tab
+    main_paned = ttk.Panedwindow(parent, orient=tk.HORIZONTAL)
+    main_paned.pack(fill=tk.BOTH, expand=True)
+
+    # Left frame for scrollable action panel
+    left_frame = ttk.Frame(main_paned)
+    main_paned.add(left_frame, weight=1)
+
+    canvas = tk.Canvas(left_frame, bg="#f8fafc", highlightthickness=0)
     canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-    scrollbar = tk.Scrollbar(parent, orient=tk.VERTICAL, command=canvas.yview)
+    scrollbar = ttk.Scrollbar(left_frame, orient=tk.VERTICAL, command=canvas.yview)
     scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
     canvas.configure(yscrollcommand=scrollbar.set)
 
     content_frame2 = tk.Frame(canvas, bg="#f8fafc")
     canvas.create_window((0, 0), window=content_frame2, anchor='nw')
 
-    hero_frame = tk.Frame(content_frame2, bg="#eff6ff", bd=1, relief="solid")
-    hero_frame.pack(fill='x', padx=20, pady=(20, 12))
-    tk.Label(hero_frame, text="PDF Merger", font=("Segoe UI", 20, "bold"), fg="#1d4ed8", bg="#eff6ff").pack(anchor='w', padx=16, pady=(12, 2))
-    tk.Label(hero_frame, text="Select PDF files to merge, set page ranges, or compress a scanned PDF to a target size.", fg="#4b5563", bg="#eff6ff").pack(anchor='w', padx=16, pady=(0, 12))
+    # Hero section (modern Slate/Blue alert banner)
+    hero_frame = tk.Frame(content_frame2, bg="#eff6ff", bd=0, highlightthickness=0)
+    hero_frame.pack(fill='x', padx=24, pady=(24, 16))
+    title_lbl = tk.Label(hero_frame, text="PDF Merger", font=("Segoe UI", 20, "bold"), fg="#1d4ed8", bg="#eff6ff")
+    title_lbl.pack(anchor='w', padx=16, pady=(12, 2))
+    desc_lbl = tk.Label(hero_frame, text="Select PDF files to merge, set page ranges, or compress a scanned PDF to a target size.", font=("Segoe UI", 10), fg="#475569", bg="#eff6ff")
+    desc_lbl.pack(anchor='w', padx=16, pady=(0, 12))
 
-    button = ttk.Button(content_frame2, text="Select PDF Files", style="Accent.TButton", command=lambda: select_pdf_files(parent))
-    button.pack(pady=(8, 8), anchor='c')
-    diag_btn = ttk.Button(content_frame2, text="Diagnose PDF", command=diagnose_pdf_file)
-    diag_btn.pack(pady=2, anchor='c')
-    optimize_btn = ttk.Button(content_frame2, text="Run Optimize", style="Success.TButton", command=lambda: run_optimize_ui())
-    optimize_btn.pack(pady=2, anchor='c')
-        
+    # Main Card container
+    card_frame = ttk.Frame(content_frame2, style="Card.TFrame", padding=24)
+    card_frame.pack(fill='x', padx=24, pady=12)
+
+    # Right frame container for dynamic content (file list & range selection)
+    right_pane_container = ttk.Frame(main_paned)
+    main_paned.add(right_pane_container, weight=1)
+
+    # Placeholder card for right pane
+    placeholder_card = ttk.Frame(right_pane_container, style="Card.TFrame", padding=32)
+    placeholder_card.pack(fill='both', expand=True, pady=40, padx=40)
+    
+    place_label = ttk.Label(
+        placeholder_card, 
+        text="No files selected yet\n\nClick 'Select PDF Files' to begin", 
+        font=("Segoe UI", 12, "bold"), 
+        foreground="#94a3b8", 
+        style="Card.TLabel",
+        justify="center"
+    )
+    place_label.pack(expand=True, anchor='c')
+
+    # Actions buttons with standardized style (passing right_pane_container instead of parent)
+    select_btn = ttk.Button(card_frame, text="Select PDF Files", style="Accent.TButton", width=25, command=lambda: select_pdf_files(right_pane_container))
+    select_btn.pack(pady=8, anchor='c')
+    
+    diag_btn = ttk.Button(card_frame, text="Diagnose PDF", style="Secondary.TButton", width=25, command=diagnose_pdf_file)
+    diag_btn.pack(pady=8, anchor='c')
+    
+    optimize_btn = ttk.Button(card_frame, text="Run Optimize", style="Success.TButton", width=25, command=lambda: run_optimize_ui())
+    optimize_btn.pack(pady=8, anchor='c')
+
+    reset_button = ttk.Button(card_frame, text="Reset Interface", style="Danger.TButton", width=25, command=lambda: reset_frames(parent.winfo_toplevel()))
+    reset_button.pack(pady=8, anchor='c')
+
     content_frame2.update_idletasks()
     canvas.configure(scrollregion=canvas.bbox("all"))
     canvas.update_idletasks()
     canvas.configure(scrollregion=canvas.bbox("all"))
 
-    reset_button = ttk.Button(content_frame2, text="Reset", style="Danger.TButton", command=lambda: reset_frames(parent.winfo_toplevel()))
-    reset_button.pack(pady=10, anchor='c')
-
     try:
         icon_image = Image.open("cooperation_puzzle_icon_262690.ico")
         icon_photo = ImageTk.PhotoImage(icon_image)
-        icon_label = tk.Label(content_frame2, image=icon_photo)
+        icon_label = tk.Label(content_frame2, image=icon_photo, bg="#f8fafc")
         icon_label.image = icon_photo
-        icon_label.pack(pady=10, anchor='c')
+        icon_label.pack(pady=16, anchor='c')
     except FileNotFoundError:
         pass
 
-    copyright_frame = tk.Frame(content_frame2)
-    copyright_frame.pack(side=tk.BOTTOM, pady=10, anchor='c')
-    copyright_label = tk.Label(copyright_frame, text="© 2026 by Đoàn Lương Bửu", fg="gray", font=("Arial", 10))
+    copyright_frame = tk.Frame(content_frame2, bg="#f8fafc")
+    copyright_frame.pack(side=tk.BOTTOM, pady=16, anchor='c')
+    copyright_label = tk.Label(copyright_frame, text="© 2026 by Đoàn Lương Bửu", fg="#94a3b8", font=("Segoe UI", 9), bg="#f8fafc")
     copyright_label.pack()
 
 
@@ -1137,52 +1274,76 @@ def select_pdf_files(root):
                                             filetypes=[("PDF files", "*.pdf")])
     if not pdf_files:  # Check if the user has selected any files
         return
+
+    # Clear placeholder or existing frames in the right pane container
+    for widget in root.winfo_children():
+        widget.destroy()
+
     # Store the original order of selection
     original_order = list(pdf_files)
     
     # Create a frame to hold the sort button and file list
-    rt_frame = tk.Frame(root)
-    rt_frame.pack(pady=10, anchor='w', fill='both', expand=True)
-
-    # Create a button to sort the files
-    sort_button = tk.Button(rt_frame, text="Sort Files A-Z", command=lambda: sort_files(original_order, rt_frame))
-    sort_button.pack(anchor='w', fill='x')
-
-    # Create a label to display the file list
-    file_list_label = tk.Label(rt_frame, text="Selected Files:", highlightcolor='blue')
-    file_list_label.pack(anchor='w', fill='x')
+    rt_frame = ttk.Frame(root, style="Card.TFrame", padding=16)
+    rt_frame.pack(pady=12, padx=24, fill='both', expand=True)
 
     # Create a frame to hold the file list and scrollbar
-    file_list_frame = tk.Frame(rt_frame)
-    file_list_frame.pack(anchor='w', fill='both', expand=True)
+    file_list_frame = ttk.Frame(rt_frame, style="White.TFrame")
+    file_list_frame.pack(anchor='w', fill='both', expand=True, pady=6)
 
     # Create a scrollbar for the file list
-    scrollbar = tk.Scrollbar(file_list_frame)
+    scrollbar = ttk.Scrollbar(file_list_frame)
     scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
     # Create a listbox to display the file list
-    file_listbox = tk.Listbox(file_list_frame, width=160, height=5, yscrollcommand=scrollbar.set)
+    file_listbox = tk.Listbox(
+        file_list_frame, 
+        width=160, 
+        height=6, 
+        yscrollcommand=scrollbar.set,
+        font=("Segoe UI", 9),
+        bg="#f8fafc",
+        fg="#0f172a",
+        selectbackground="#e0e7ff",
+        selectforeground="#4f46e5",
+        relief="flat",
+        highlightthickness=1,
+        highlightcolor="#cbd5e1",
+        highlightbackground="#cbd5e1"
+    )
     file_listbox.pack(side=tk.LEFT, fill='both', expand=True)
     scrollbar.config(command=file_listbox.yview)
     for file in pdf_files:
         file_listbox.insert(tk.END, file)
 
+    # Label & top controls row
+    top_row = ttk.Frame(rt_frame, style="White.TFrame")
+    top_row.pack(fill='x', before=file_list_frame, pady=(0, 6))
+
+    file_list_label = ttk.Label(top_row, text="Selected Files:", font=("Segoe UI", 10, "bold"), style="Card.TLabel")
+    file_list_label.pack(side=tk.LEFT, anchor='w')
+
+    # Create a button to sort the files
+    sort_button = ttk.Button(top_row, text="Sort Files A-Z", style="Secondary.TButton", width=15, command=lambda: sort_files(original_order, file_listbox))
+    sort_button.pack(side=tk.RIGHT)
+
     # Create a frame to hold the move up and move down buttons
-    button_frame = tk.Frame(rt_frame)
-    button_frame.pack(anchor='w', fill='x')
+    button_frame = ttk.Frame(rt_frame, style="White.TFrame")
+    button_frame.pack(anchor='w', fill='x', pady=6)
 
     # Create a button to move the selected file up
-    move_up_button = tk.Button(button_frame, text="Move Up", command=lambda: move_file_up(file_listbox))
-    move_up_button.pack(side=tk.LEFT)
+    move_up_button = ttk.Button(button_frame, text="Move Up", style="Secondary.TButton", width=15, command=lambda: move_file_up(file_listbox))
+    move_up_button.pack(side=tk.LEFT, padx=(0, 6))
 
     # Create a button to move the selected file down
-    move_down_button = tk.Button(button_frame, text="Move Down", command=lambda: move_file_down(file_listbox))
+    move_down_button = ttk.Button(button_frame, text="Move Down", style="Secondary.TButton", width=15, command=lambda: move_file_down(file_listbox))
     move_down_button.pack(side=tk.LEFT)
 
     # Create a button to proceed to page range selection
-    proceed_button = tk.Button(rt_frame, text="Proceed to Page Range Selection", 
-                                command=lambda: get_page_ranges(file_listbox, pdf_files, root))
-    proceed_button.pack(anchor='c')
+    proceed_button = ttk.Button(rt_frame, text="Proceed to Page Range Selection", 
+                                 style="Accent.TButton",
+                                 width=30,
+                                 command=lambda: get_page_ranges(file_listbox, pdf_files, root))
+    proceed_button.pack(anchor='c', pady=(12, 0))
 
 def move_file_up(file_listbox):
     """Move the selected file up in the list"""
@@ -1204,10 +1365,9 @@ def move_file_down(file_listbox):
             file_listbox.delete(index)
             file_listbox.insert(index + 1, selected_file)  # Insert the selected file at the new index
 
-def sort_files(original_order, frame):
+def sort_files(original_order, file_listbox):
     """Sort the files in alphabetical order"""
     pdf_files = sorted(original_order)
-    file_listbox = frame.winfo_children()[2]  # Get the listbox widget
     file_listbox.delete(0, tk.END)  # Clear the listbox
     for file in pdf_files:
         file_listbox.insert(tk.END, file)  # Update the listbox with the sorted files

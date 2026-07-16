@@ -1219,16 +1219,16 @@ def build_merge_tab(parent):
     place_label.pack(expand=True, anchor='c')
 
     # Actions buttons with standardized style (passing right_pane_container instead of parent)
-    select_btn = ttk.Button(card_frame, text="Select PDF Files", style="Accent.TButton", width=25, command=lambda: select_pdf_files(right_pane_container))
+    select_btn = ttk.Button(card_frame, text="Chọn file để ghép", style="Accent.TButton", width=25, command=lambda: select_pdf_files(right_pane_container))
     select_btn.pack(pady=8, anchor='c')
     
-    diag_btn = ttk.Button(card_frame, text="Diagnose PDF", style="Secondary.TButton", width=25, command=diagnose_pdf_file)
+    diag_btn = ttk.Button(card_frame, text="Thông tin file pdf", style="Secondary.TButton", width=25, command=diagnose_pdf_file)
     diag_btn.pack(pady=8, anchor='c')
     
-    optimize_btn = ttk.Button(card_frame, text="Run Optimize", style="Success.TButton", width=25, command=lambda: run_optimize_ui())
+    optimize_btn = ttk.Button(card_frame, text="Resized file pdf", style="Success.TButton", width=25, command=lambda: run_optimize_ui())
     optimize_btn.pack(pady=8, anchor='c')
 
-    reset_button = ttk.Button(card_frame, text="Reset Interface", style="Danger.TButton", width=25, command=lambda: reset_frames(parent.winfo_toplevel()))
+    reset_button = ttk.Button(card_frame, text="Reset", style="Danger.TButton", width=25, command=lambda: reset_frames(parent.winfo_toplevel()))
     reset_button.pack(pady=8, anchor='c')
 
     content_frame2.update_idletasks()

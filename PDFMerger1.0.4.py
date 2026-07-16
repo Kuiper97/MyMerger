@@ -433,7 +433,7 @@ def calculate_image_scale_for_page(image, page, target_dpi):
     return max(0.4, scale)
 
 
-def compress_pdf_images_with_fitz(input_pdf_path, output_pdf_path, target_dpi):
+def compress_pdf_images_with_fitz(input_pdf_path, output_pdf_path, target_dpi, preserve_color=True, quality=None):
     """Compress embedded images in a PDF using PyMuPDF without rasterizing whole pages."""
     if fitz is None:
         return False
@@ -442,43 +442,80 @@ def compress_pdf_images_with_fitz(input_pdf_path, output_pdf_path, target_dpi):
     try:
         doc = fitz.open(input_pdf_path)
         changed = False
-        quality = 35 if target_dpi <= 120 else 45
+        if quality is None:
+            quality = 40 if target_dpi <= 120 else 55
 
         for page in doc:
-            image_list = page.get_images(full=True)
+            try:
+                image_list = page.get_images(full=True)
+            except Exception:
+                continue
             for image_info in image_list:
                 xref = image_info[0]
-                image_data = doc.extract_image(xref)
+                try:
+                    image_data = doc.extract_image(xref)
+                except Exception:
+                    continue
                 image_bytes = image_data.get("image")
                 if not image_bytes:
                     continue
 
-                img = Image.open(BytesIO(image_bytes))
-                img = img.convert("L")
+                try:
+                    img = Image.open(BytesIO(image_bytes))
+                except Exception:
+                    continue
+
+                # Handle color preservation
+                if preserve_color:
+                    if img.mode == "RGBA":
+                        background = Image.new("RGB", img.size, (255, 255, 255))
+                        background.paste(img, mask=img.split()[3])
+                        img = background
+                    elif img.mode != "RGB":
+                        img = img.convert("RGB")
+                else:
+                    if img.mode != "L":
+                        img = img.convert("L")
+
                 scale_factor = calculate_image_scale_for_page(img, page, target_dpi)
                 if scale_factor < 1.0:
                     new_size = (max(1, int(img.width * scale_factor)), max(1, int(img.height * scale_factor)))
                     img = img.resize(new_size, Image.Resampling.LANCZOS)
 
                 out_buf = BytesIO()
-                img.save(out_buf, format="JPEG", quality=quality, optimize=True)
-                # PyMuPDF changed replace_image signature across versions.
-                # Try page.replace_image first, then fall back to Document.replace_image if available.
                 try:
-                    page.replace_image(xref, out_buf.getvalue())
+                    img.save(out_buf, format="JPEG", quality=quality, optimize=True)
+                    img_data = out_buf.getvalue()
+                except Exception:
+                    # Fallback to PNG if JPEG fails
+                    try:
+                        out_buf = BytesIO()
+                        img.save(out_buf, format="PNG", optimize=True)
+                        img_data = out_buf.getvalue()
+                    except Exception:
+                        continue
+
+                # PyMuPDF changed replace_image signature across versions.
+                # Try page.replace_image with keyword arg stream= first, then positional, then Document fallback.
+                try:
+                    page.replace_image(xref, stream=img_data)
                 except TypeError:
                     try:
-                        # some versions expose replace_image on Document
-                        doc.replace_image(xref, out_buf.getvalue())
-                    except Exception:
-                        # give up on in-place image replacement for this file
-                        return False
+                        page.replace_image(xref, img_data)
+                    except TypeError:
+                        try:
+                            # some versions expose replace_image on Document
+                            doc.replace_image(xref, img_data)
+                        except Exception:
+                            # give up on in-place image replacement for this file
+                            return False
+                except Exception:
+                    # other errors, skip this image
+                    continue
                 changed = True
 
-        if not changed:
-            return False
-
-        doc.save(output_pdf_path, deflate=True)
+        # Save anyway to deflate structure and garbage-collect
+        doc.save(output_pdf_path, deflate=True, garbage=4)
         return True
     except Exception as e:
         print(f"Không thể nén PDF bằng fitz: {e}")
@@ -851,38 +888,99 @@ def _report_progress(progress_callback, percent, message=None):
             pass
 
 
-def optimize_pdf_file(input_pdf_path, output_pdf_path, target_dpi, preserve_color=False, progress_callback=None):
-    """Optimize a scanned PDF by rasterizing pages at the requested DPI.
-
-    Returns a dict with 'method' and sizes.
+def optimize_pdf_file(input_pdf_path, output_pdf_path, target_dpi, preserve_color=False, mode="digital", progress_callback=None):
+    """Optimize a PDF by either compressing embedded images in-place (digital mode) 
+    or rasterizing all pages (scanned mode).
     """
     original_size = os.path.getsize(input_pdf_path) if os.path.exists(input_pdf_path) else None
 
     try:
-        ok = rasterize_pdf_to_pdf(
-            input_pdf_path,
-            output_pdf_path,
-            target_dpi,
-            quality=None,
-            preserve_color=preserve_color,
-            progress_callback=progress_callback,
-        )
+        if mode == "digital":
+            _report_progress(progress_callback, 10, "Đang tối ưu ảnh và cấu trúc PDF...")
+            
+            # Step 1: Compress images using fitz
+            temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+            temp_pdf.close()
+            
+            try:
+                ok = False
+                if fitz is not None:
+                    # Adjust quality based on DPI
+                    quality = 40 if target_dpi <= 120 else 55
+                    ok = compress_pdf_images_with_fitz(
+                        input_pdf_path, 
+                        temp_pdf.name, 
+                        target_dpi, 
+                        preserve_color=preserve_color, 
+                        quality=quality
+                    )
+                
+                # If fitz is not available or failed, copy original to temp to proceed with structure optimization
+                if not ok:
+                    shutil.copyfile(input_pdf_path, temp_pdf.name)
+                
+                # Step 2: Use pikepdf to optimize structure & streams further
+                if pikepdf is not None:
+                    _report_progress(progress_callback, 80, "Đang tối ưu cấu trúc với pikepdf...")
+                    temp_pdf2 = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+                    temp_pdf2.close()
+                    try:
+                        if compress_pdf_with_pikepdf(temp_pdf.name, temp_pdf2.name):
+                            os.replace(temp_pdf2.name, output_pdf_path)
+                        else:
+                            shutil.copyfile(temp_pdf.name, output_pdf_path)
+                    except Exception:
+                        shutil.copyfile(temp_pdf.name, output_pdf_path)
+                    finally:
+                        if os.path.exists(temp_pdf2.name):
+                            try:
+                                os.remove(temp_pdf2.name)
+                            except OSError:
+                                pass
+                else:
+                    shutil.copyfile(temp_pdf.name, output_pdf_path)
+                
+                _report_progress(progress_callback, 100, "Nén hoàn tất")
+                
+                new_size = os.path.getsize(output_pdf_path) if os.path.exists(output_pdf_path) else None
+                if original_size is not None and new_size is not None and new_size >= original_size:
+                    shutil.copyfile(input_pdf_path, output_pdf_path)
+                    return {"method": "original_kept", "size": original_size, "original_size": original_size}
+                
+                return {"method": "digital_optimize", "size": new_size, "original_size": original_size}
+            finally:
+                if os.path.exists(temp_pdf.name):
+                    try:
+                        os.remove(temp_pdf.name)
+                    except OSError:
+                        pass
+        else:
+            # Scanned mode (original rasterize behavior)
+            ok = rasterize_pdf_to_pdf(
+                input_pdf_path,
+                output_pdf_path,
+                target_dpi,
+                quality=None,
+                preserve_color=preserve_color,
+                progress_callback=progress_callback,
+            )
 
-        if not ok:
-            if os.path.exists(output_pdf_path):
-                try:
-                    os.remove(output_pdf_path)
-                except Exception:
-                    pass
-            shutil.copyfile(input_pdf_path, output_pdf_path)
-            return {"method": "original", "size": original_size, "original_size": original_size}
+            if not ok:
+                if os.path.exists(output_pdf_path):
+                    try:
+                        os.remove(output_pdf_path)
+                    except Exception:
+                        pass
+                shutil.copyfile(input_pdf_path, output_pdf_path)
+                return {"method": "original", "size": original_size, "original_size": original_size}
 
-        new_size = os.path.getsize(output_pdf_path) if os.path.exists(output_pdf_path) else None
-        if original_size is not None and new_size is not None and new_size >= original_size:
-            shutil.copyfile(input_pdf_path, output_pdf_path)
-            return {"method": "original_kept", "size": original_size, "original_size": original_size}
+            new_size = os.path.getsize(output_pdf_path) if os.path.exists(output_pdf_path) else None
+            if original_size is not None and new_size is not None and new_size >= original_size:
+                shutil.copyfile(input_pdf_path, output_pdf_path)
+                return {"method": "original_kept", "size": original_size, "original_size": original_size}
 
-        return {"method": "rasterize", "size": new_size, "original_size": original_size}
+            return {"method": "rasterize", "size": new_size, "original_size": original_size}
+            
     except Exception as e:
         return {"error": str(e)}
 
@@ -909,51 +1007,223 @@ def get_safe_output_path(default_path):
 
 
 def run_optimize_ui():
-    """UI helper to run optimize_pdf_file on a chosen file and show results."""
-    input_path = filedialog.askopenfilename(title="Select PDF to optimize", filetypes=[("PDF files", "*.pdf")])
+    """UI helper to configure and run optimize_pdf_file using a modern Toplevel dialog."""
+    input_path = filedialog.askopenfilename(title="Chọn file PDF cần nén", filetypes=[("PDF files", "*.pdf")])
     if not input_path:
         return
 
-    suggested = os.path.splitext(os.path.basename(input_path))[0] + "_resized.pdf"
-    output_path = filedialog.asksaveasfilename(title="Save resized PDF as", defaultextension='.pdf', initialfile=suggested, filetypes=[("PDF files", "*.pdf")])
-    if not output_path:
-        return
-
     original_size = os.path.getsize(input_path) if os.path.exists(input_path) else 0
-    target_size_text = simpledialog.askstring(
-        "Target size",
-        "Enter target size (for example: 15MB, 50MB):",
-        initialvalue="15MB",
-    )
-    if not target_size_text:
-        target_size_text = "15MB"
+    
+    def format_size(size_bytes):
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.2f} {unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.2f} TB"
 
-    target_size_bytes = parse_size_to_bytes(target_size_text)
-    if target_size_bytes is None or target_size_bytes <= 0:
-        messagebox.showerror("Invalid size", "Please enter a valid size such as 15MB or 50MB.")
-        return
-
-    estimated_factor = estimate_compression_factor(original_size, target_size_bytes)
-    try:
-        compression_factor = simpledialog.askfloat(
-            "Compression factor",
-            f"Optional: adjust the estimate (suggested: {estimated_factor:.2f}; Tăng thêm dung lượng: GIẢM XUỐNG):",
-            initialvalue=estimated_factor,
-            minvalue=0.2,
-            maxvalue=2.0,
-        )
-    except Exception:
-        compression_factor = estimated_factor
-
-    if compression_factor is None:
-        compression_factor = estimated_factor
-
-    dpi = estimate_target_dpi_from_size(original_size, target_size_bytes, compression_factor=compression_factor)
-    preserve = messagebox.askyesno("Preserve color", "Keep color when compressing?\nChoose No for grayscale output.")
+    original_size_text = format_size(original_size)
+    suggested = os.path.splitext(input_path)[0] + "_compressed.pdf"
 
     root = tk._default_root if tk._default_root is not None else tk.Tk()
+    
+    # Configuration dialog window
+    config_window = tk.Toplevel(root)
+    config_window.title("Cấu hình Nén PDF")
+    config_window.geometry("620x680")
+    config_window.resizable(False, False)
+    config_window.grab_set()
+    config_window.configure(bg="#f8fafc")
+
+    main_frame = ttk.Frame(config_window, padding=20)
+    main_frame.pack(fill="both", expand=True)
+
+    # Hero banner
+    hero_frame = tk.Frame(main_frame, bg="#eff6ff", bd=0, highlightthickness=0)
+    hero_frame.pack(fill="x", pady=(0, 16))
+    title_lbl = tk.Label(hero_frame, text="Tối ưu hóa dung lượng PDF", font=("Segoe UI", 14, "bold"), fg="#1d4ed8", bg="#eff6ff")
+    title_lbl.pack(anchor="w", padx=16, pady=(12, 2))
+    desc_lbl = tk.Label(hero_frame, text="Điều chỉnh chất lượng ảnh nhúng và cấu trúc tệp để giảm dung lượng.", font=("Segoe UI", 9), fg="#475569", bg="#eff6ff")
+    desc_lbl.pack(anchor="w", padx=16, pady=(0, 12))
+
+    card_frame = ttk.Frame(main_frame, style="Card.TFrame", padding=16)
+    card_frame.pack(fill="both", expand=True)
+
+    # File info
+    file_info_frame = ttk.Frame(card_frame, style="White.TFrame")
+    file_info_frame.pack(fill="x", pady=6)
+    ttk.Label(file_info_frame, text="File nguồn:", font=("Segoe UI", 9, "bold"), style="Card.TLabel").pack(anchor="w")
+    ttk.Label(file_info_frame, text=f"{os.path.basename(input_path)} ({original_size_text})", font=("Segoe UI", 9), style="Card.TLabel", foreground="#475569").pack(anchor="w", pady=(2, 6))
+
+    # Output file path entry
+    output_var = tk.StringVar(value=suggested)
+    output_row = ttk.Frame(card_frame, style="White.TFrame")
+    output_row.pack(fill="x", pady=6)
+    ttk.Label(output_row, text="Lưu file kết quả tại:", font=("Segoe UI", 9, "bold"), style="Card.TLabel").pack(anchor="w", pady=(0, 4))
+    
+    output_entry_frame = ttk.Frame(output_row, style="White.TFrame")
+    output_entry_frame.pack(fill="x", expand=True)
+    
+    output_entry = ttk.Entry(output_entry_frame, textvariable=output_var, font=("Segoe UI", 9))
+    output_entry.pack(side=tk.LEFT, fill="x", expand=True, ipady=2)
+    
+    def browse_output():
+        selected = filedialog.asksaveasfilename(
+            parent=config_window,
+            title="Lưu file kết quả",
+            defaultextension=".pdf",
+            initialfile=os.path.basename(output_var.get()),
+            filetypes=[("PDF files", "*.pdf")]
+        )
+        if selected:
+            output_var.set(selected)
+
+    select_dest_btn = ttk.Button(
+        output_entry_frame, 
+        text="Chọn nơi lưu", 
+        style="Secondary.TButton", 
+        width=12,
+        command=browse_output
+    )
+    select_dest_btn.pack(side=tk.LEFT, padx=(8, 0))
+
+    # Mode selection
+    mode_var = tk.StringVar(value="digital")
+    mode_row = ttk.Frame(card_frame, style="White.TFrame")
+    mode_row.pack(fill="x", pady=10)
+    ttk.Label(mode_row, text="Chế độ nén:", font=("Segoe UI", 9, "bold"), style="Card.TLabel").pack(anchor="w", pady=(0, 4))
+    
+    digital_rb = ttk.Radiobutton(
+        mode_row, 
+        text="PDF kỹ thuật số (Giữ chữ sắc nét, tìm kiếm được văn bản - Khuyên dùng)", 
+        value="digital", 
+        variable=mode_var
+    )
+    digital_rb.pack(anchor="w", pady=2)
+    
+    scanned_rb = ttk.Radiobutton(
+        mode_row, 
+        text="PDF bản quét (Chuyển trang thành ảnh - Dành cho tài liệu scan)", 
+        value="scanned", 
+        variable=mode_var
+    )
+    scanned_rb.pack(anchor="w", pady=2)
+
+    # Color selection
+    color_var = tk.BooleanVar(value=True)
+    color_row = ttk.Frame(card_frame, style="White.TFrame")
+    color_row.pack(fill="x", pady=10)
+    ttk.Label(color_row, text="Hệ màu sắc:", font=("Segoe UI", 9, "bold"), style="Card.TLabel").pack(anchor="w", pady=(0, 4))
+    
+    color_rb = ttk.Radiobutton(
+        color_row, 
+        text="Giữ nguyên màu sắc (RGB)", 
+        value=True, 
+        variable=color_var
+    )
+    color_rb.pack(anchor="w", pady=2)
+    
+    gray_rb = ttk.Radiobutton(
+        color_row, 
+        text="Chuyển sang đen trắng (Grayscale - Giảm dung lượng tối đa)", 
+        value=False, 
+        variable=color_var
+    )
+    gray_rb.pack(anchor="w", pady=2)
+
+    # Preset selection
+    preset_row = ttk.Frame(card_frame, style="White.TFrame")
+    preset_row.pack(fill="x", pady=10)
+    ttk.Label(preset_row, text="Mức độ nén (DPI):", font=("Segoe UI", 9, "bold"), style="Card.TLabel").pack(anchor="w", pady=(0, 4))
+    
+    presets = {
+        "low": "Thấp (Chất lượng cao - 200 DPI)",
+        "medium": "Trung bình (Cân bằng - 150 DPI)",
+        "high": "Cao (Dung lượng nhỏ - 96 DPI)",
+        "very_high": "Rất cao (Tối thiểu - 72 DPI)",
+        "custom": "Tự chọn theo Dung lượng đích mong muốn"
+    }
+    
+    preset_combobox = ttk.Combobox(
+        preset_row, 
+        values=list(presets.values()), 
+        state="readonly",
+        font=("Segoe UI", 9)
+    )
+    preset_combobox.set(presets["medium"])
+    preset_combobox.pack(fill="x", pady=2)
+
+    custom_frame = ttk.Frame(card_frame, style="White.TFrame")
+    custom_frame.pack(fill="x", pady=4)
+    
+    target_label = ttk.Label(custom_frame, text="Dung lượng đích mong muốn (ví dụ: 10MB, 500KB):", style="Card.TLabel")
+    target_entry = ttk.Entry(custom_frame, font=("Segoe UI", 9))
+    target_entry.insert(0, "15MB")
+    
+    def on_preset_change(event):
+        val = preset_combobox.get()
+        if val == presets["custom"]:
+            target_label.pack(anchor="w", pady=(2, 2))
+            target_entry.pack(fill="x", pady=2)
+        else:
+            target_label.pack_forget()
+            target_entry.pack_forget()
+            
+    preset_combobox.bind("<<ComboboxSelected>>", on_preset_change)
+
+    # Actions container
+    actions_row = ttk.Frame(card_frame, style="White.TFrame")
+    actions_row.pack(fill="x", pady=(20, 0))
+
+    def on_cancel():
+        config_window.grab_release()
+        config_window.destroy()
+
+    def on_submit():
+        out_path = output_var.get().strip()
+        if not out_path:
+            messagebox.showerror("Lỗi", "Vui lòng nhập đường dẫn file kết quả.")
+            return
+
+        mode = mode_var.get()
+        preserve_color = color_var.get()
+        
+        dpi = 150
+        selected_preset_text = preset_combobox.get()
+        
+        if selected_preset_text == presets["low"]:
+            dpi = 200
+        elif selected_preset_text == presets["medium"]:
+            dpi = 150
+        elif selected_preset_text == presets["high"]:
+            dpi = 96
+        elif selected_preset_text == presets["very_high"]:
+            dpi = 72
+        elif selected_preset_text == presets["custom"]:
+            target_size_text = target_entry.get().strip()
+            target_bytes = parse_size_to_bytes(target_size_text)
+            if target_bytes is None or target_bytes <= 0:
+                messagebox.showerror("Lỗi", "Vui lòng nhập dung lượng đích hợp lệ (ví dụ: 15MB, 500KB).")
+                return
+            estimated_factor = estimate_compression_factor(original_size, target_bytes)
+            dpi = estimate_target_dpi_from_size(original_size, target_bytes, compression_factor=estimated_factor)
+
+        config_window.grab_release()
+        config_window.destroy()
+        
+        show_progress_and_run(input_path, out_path, dpi, preserve_color, mode, original_size_text)
+
+    cancel_btn = ttk.Button(actions_row, text="Hủy bỏ", style="Secondary.TButton", command=on_cancel)
+    cancel_btn.pack(side=tk.RIGHT, padx=(8, 0))
+
+    submit_btn = ttk.Button(actions_row, text="Bắt đầu nén", style="Success.TButton", command=on_submit)
+    submit_btn.pack(side=tk.RIGHT)
+
+
+def show_progress_and_run(input_path, output_path, dpi, preserve, mode, original_size_text):
+    """Show the progress bar window and run the optimize task in a background thread."""
+    root = tk._default_root if tk._default_root is not None else tk.Tk()
     progress_window = tk.Toplevel(root)
-    progress_window.title("Optimizing PDF")
+    progress_window.title("Đang tối ưu hóa PDF")
     progress_window.resizable(False, False)
     progress_window.grab_set()
     progress_window.configure(bg="#f8fafc")
@@ -961,17 +1231,18 @@ def run_optimize_ui():
     main_frame = ttk.Frame(progress_window, padding=24)
     main_frame.pack(fill="both", expand=True)
 
-    title_label = ttk.Label(main_frame, text="Optimizing PDF", font=("Segoe UI", 15, "bold"), foreground="#1d4ed8")
+    title_label = ttk.Label(main_frame, text="Đang xử lý nén PDF...", font=("Segoe UI", 15, "bold"), foreground="#1d4ed8")
     title_label.pack(anchor="w", pady=(0, 6))
     
-    sub_label = ttk.Label(main_frame, text=f"Target size: {target_size_text} • Estimated DPI: {dpi} (approximate)", style="Sub.TLabel")
+    mode_text = "Kỹ thuật số (Giữ chữ)" if mode == "digital" else "Bản quét (Chuyển thành ảnh)"
+    sub_label = ttk.Label(main_frame, text=f"Chế độ: {mode_text} • Chỉ số DPI: {dpi}", style="Sub.TLabel")
     sub_label.pack(anchor="w", pady=(0, 12))
 
     progress_var = tk.IntVar(value=0)
     progress_bar = ttk.Progressbar(main_frame, maximum=100, variable=progress_var, length=420, mode="determinate")
     progress_bar.pack(fill="x", pady=(0, 8))
     
-    status_label = ttk.Label(main_frame, text="Starting...", style="Sub.TLabel")
+    status_label = ttk.Label(main_frame, text="Khởi động...", style="Sub.TLabel")
     status_label.pack(anchor="w")
 
     def update_progress(percent, message=None):
@@ -991,6 +1262,7 @@ def run_optimize_ui():
             output_path,
             target_dpi=dpi,
             preserve_color=preserve,
+            mode=mode,
             progress_callback=update_progress,
         )
 
@@ -1002,12 +1274,30 @@ def run_optimize_ui():
             progress_window.destroy()
 
             if isinstance(result, dict) and result.get('error'):
-                messagebox.showerror("Optimize Error", f"Error: {result['error']}")
+                messagebox.showerror("Lỗi nén", f"Lỗi: {result['error']}")
                 return
 
             method = result.get('method')
             size = result.get('size')
-            messagebox.showinfo("Optimize Complete", f"Method: {method}\nOutput size: {size} bytes")
+            
+            def format_size(size_bytes):
+                for unit in ['B', 'KB', 'MB', 'GB']:
+                    if size_bytes < 1024.0:
+                        return f"{size_bytes:.2f} {unit}"
+                    size_bytes /= 1024.0
+                return f"{size_bytes:.2f} TB"
+            
+            new_size_text = format_size(size) if size else "Không xác định"
+            
+            method_desc = {
+                "digital_optimize": "Tối ưu hóa PDF số (Giữ văn bản)",
+                "rasterize": "Tối ưu hóa bản quét (Rasterize)",
+                "original_kept": "Giữ nguyên file gốc (do dung lượng nén lớn hơn hoặc bằng file gốc)",
+                "original": "Sao chép file gốc (Lỗi nén)"
+            }
+            desc = method_desc.get(method, method)
+            
+            messagebox.showinfo("Nén hoàn tất", f"Phương pháp: {desc}\nKích thước gốc: {original_size_text}\nKích thước mới: {new_size_text}")
             try:
                 if os.path.exists(output_path):
                     os.startfile(output_path)

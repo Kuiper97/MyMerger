@@ -4,6 +4,8 @@
 PyPDF2
 pdf2image
 pyinstaller
+pymupdf
+pikepdf
 
 # Poppler is required for pdf2image to work
 # Windows: Install poppler using winget: winget install poppler
